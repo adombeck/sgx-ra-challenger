@@ -1,0 +1,6 @@
+[submodule "pycrypto"]
+	path = pycrypto
+	url = https://github.com/dlitz/pycrypto
+[submodule "pyelliptic"]
+	path = pyelliptic
+	url = https://github.com/adombeck/pyelliptic
