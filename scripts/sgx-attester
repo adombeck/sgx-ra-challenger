@@ -100,12 +100,12 @@ class Attester(object):
 
         fake_spid = b"\x00" * 16
         quote_type = QUOTE_UNLINKABLE_SIGNATURE
-        authenticated_bytes = public_key + fake_spid + QUOTE_UNLINKABLE_SIGNATURE + KDF_ID + key_signature
+        authenticated_bytes = public_key + fake_spid + quote_type + KDF_ID + key_signature
         mac = self.create_mac(session_mac_key, authenticated_bytes)
 
         msg2 = json.dumps({"public_key": public_key.hex(),
                            "spid": fake_spid.hex(),
-                           "quote_type": QUOTE_UNLINKABLE_SIGNATURE.hex(),
+                           "quote_type": quote_type.hex(),
                            "kdf_id": KDF_ID.hex(),
                            "key_signature": key_signature.hex(),
                            "mac": mac.hex(),
