@@ -63,9 +63,11 @@ class Attester(object):
     def receive_msg0(self):
         received_raw = self.socket.recv(1024)
         logging.debug("Received: %s", received_raw)
+
         received_json = json.loads(received_raw.decode('utf8'))
         assert isinstance(received_json, dict)
         assert len(received_json) == 1
+
         self.epid_group_id = received_json["EPID"]
 
     def receive_msg1(self):
@@ -77,6 +79,7 @@ class Attester(object):
         assert len(received_json) == 1
         assert isinstance(received_json["public_key"], str)
         assert len(received_json["public_key"]) == 128
+
         self.enclave_public_key = bytes.fromhex(received_json["public_key"])
         logging.info("enclave public key: %r", self.enclave_public_key.hex())
 
