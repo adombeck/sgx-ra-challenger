@@ -110,7 +110,7 @@ class Attester(object):
                            "quote_type": quote_type.hex(),
                            "kdf_id": KDF_ID.hex(),
                            "key_signature": key_signature.hex(),
-                           "mac": mac[::-1].hex(),
+                           "mac": mac.hex(),
                            "revocation_list": revocation_list.hex()}).encode()
 
         self.socket.sendall(msg2)
