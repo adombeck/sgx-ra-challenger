@@ -4,29 +4,21 @@ import argparse
 import socket
 import logging
 import json
-import pyelliptic
-import Crypto.Hash.CMAC
-import Crypto.Cipher.AES
-
 
 from sgx_attester import util
-from sgx_attester.config import CURVE
+from sgx_attester.crypto import generate_ecdh_key_pair
+from sgx_attester.crypto import derive_key
+from sgx_attester.crypto import derive_shared_key
+from sgx_attester.crypto import create_key_signature
+from sgx_attester.crypto import create_msg2_mac
+from sgx_attester.crypto import verify_msg3_mac
+from sgx_attester.crypto import verify_msg3_report_data
+
 
 QUOTE_UNLINKABLE_SIGNATURE = b"\x00\x00"
 QUOTE_LINKABLE_SIGNATURE = b"\x01\x00"
 
 KDF_ID = b"\x01\x00"
-
-
-class ECCPublicKey(object):
-    def __init__(self, gx: bytes, gy: bytes):
-        self.gx = gx
-        self.gy = gy
-
-    def get_pubkey(self):
-        """Returns the public key in the format expected by pyelliptic (which uses OpenSSL internally)"""
-        # I don't know why the '04' is required, but this is what pyelliptic expects
-        return b'04' + self.gx + self.gy
 
 
 class Attester(object):
@@ -45,7 +37,9 @@ class Attester(object):
         self.enclave_public_key = None
         self.revocation_list = None
         self.shared_key = None
+        self.session_mac_key = None
         self.long_term_private_key = util.get_private_key()
+        self.long_term_public_key = util.get_public_key()
 
     def execute(self):
         self.socket.connect((self.dest_host, self.dest_port))
@@ -55,7 +49,11 @@ class Attester(object):
         self.receive_msg1()
 
         self.send_msg2()
-        # XXX: incomplete
+
+        quote, mac, platform_service_security_properties = self.receive_msg3()
+        verification_result = self.process_msg3(quote, mac, platform_service_security_properties)
+
+        self.send_msg4(verification_result)
 
     def send_attestation_request(self):
         self.socket.sendall(b"attest")
@@ -86,30 +84,34 @@ class Attester(object):
     def send_msg2(self):
         revocation_list = self.get_revocation_list(self.epid_group_id)
 
-        public_key, private_key = self.generate_ecdh_key_pair()
-        logging.info("my public key: %r", public_key.hex())
+        self.public_key, private_key = generate_ecdh_key_pair()
+        logging.info("my public key: %r", self.public_key.hex())
 
-        self.shared_key = self.derive_shared_key(private_key, self.enclave_public_key)
+        self.shared_key = derive_shared_key(private_key, self.public_key, self.enclave_public_key)
         logging.info("shared key: %r", self.shared_key.hex())
 
-        key_signature = self.create_key_signature(self.long_term_private_key, public_key, self.enclave_public_key)
-        logging.info("key signature: %r", key_signature.hex())
+        key_signature = create_key_signature(self.long_term_private_key,
+                                             self.long_term_public_key,
+                                             self.public_key,
+                                             self.enclave_public_key)
+        logging.info("key signature: %r\n", key_signature.hex())
 
-        session_mac_key = self.derive_key(self.shared_key, b'SMK')
-        logging.info("session MAC key: %r", session_mac_key.hex())
+        self.session_mac_key = derive_key(self.shared_key, b'SMK')
+        logging.info("session MAC key: %r\n", self.session_mac_key.hex())
 
-        fake_spid = b"\x00" * 16
+        fake_spid = b"Service X" + b"\x00" * 7
         quote_type = QUOTE_UNLINKABLE_SIGNATURE
-        authenticated_bytes = public_key + fake_spid + quote_type + KDF_ID + key_signature
-        mac = self.create_mac(session_mac_key, authenticated_bytes)
 
-        msg2 = json.dumps({"public_key": public_key.hex(),
+        mac = create_msg2_mac(self.session_mac_key, self.public_key, fake_spid, quote_type, KDF_ID, key_signature)
+        logging.info("MAC: %r\n", mac.hex())
+
+        msg2 = json.dumps({"public_key": self.public_key.hex(),
                            "spid": fake_spid.hex(),
                            "quote_type": quote_type.hex(),
                            "kdf_id": KDF_ID.hex(),
                            "key_signature": key_signature.hex(),
-                           "mac": mac.hex(),
-                           "revocation_list": revocation_list}).encode()
+                           "mac": mac[::-1].hex(),
+                           "revocation_list": revocation_list.hex()}).encode()
 
         self.socket.sendall(msg2)
 
@@ -117,44 +119,43 @@ class Attester(object):
     def get_revocation_list(epid_group_id):
         # XXX: In production mode, this should connect to the Intel Attestation Service
         # to receive the signature revocation list for the specified EPID group ID
-        return list()
+        return bytes()
+
+    def receive_msg3(self):
+        received_raw = self.socket.recv(4096)
+        logging.debug("Received (size: %s): %s", len(received_raw), received_raw)
+
+        received_json = json.loads(received_raw.decode('utf8'))
+        assert isinstance(received_json, dict)
+        assert len(received_json) == 3
+
+        quote = bytes.fromhex(received_json["quote"])
+        mac = bytes.fromhex(received_json["mac"])
+        platform_service_security_properties = bytes.fromhex(received_json["platform_service_security_properties"])
+
+        return quote, mac, platform_service_security_properties
+
+    def process_msg3(self, quote, mac, platform_service_security_properties):
+        verify_msg3_mac(mac, self.session_mac_key, self.enclave_public_key, quote, platform_service_security_properties)
+
+        report_data = quote[368:432]
+        verify_msg3_report_data(report_data, self.enclave_public_key, self.public_key, self.shared_key)
+
+        verification_result = self.verify_quote(quote)
+
+        logging.info("Msg3 processed")
+        return verification_result
 
     @staticmethod
-    def generate_ecdh_key_pair():
-        # P-256 was deprecated by the NSA in 2015 for unknown reasons.
-        # See: https://blog.cryptographyengineering.com/2015/10/22/a-riddle-wrapped-in-curve/
-        # We should probably use something else, but the Intel SDK functions only support P-256.
-        ecc = pyelliptic.ECC(curve=CURVE)
-        return ecc.get_pubkey(), ecc.get_privkey()
+    def verify_quote(quote):
+        # XXX: Request developer service access [1] and use IAS [2] to verify quote
+        # [1] https://software.intel.com/formfill/sgx-onboarding
+        # [2] https://software.intel.com/sites/default/files/managed/7e/3b/ias-api-spec.pdf
+        return True
 
-    @staticmethod
-    def derive_shared_key(private_key, public_key):
-        ecc = pyelliptic.ECC(privkey=private_key, curve=CURVE)
-        return ecc.get_ecdh_key(b'\x04' + public_key)
-
-    @staticmethod
-    def derive_key(shared_key, label):
-        empty_key = b'\x00' * 16
-        cobj1 = Crypto.Hash.CMAC.new(empty_key, ciphermod=Crypto.Cipher.AES)
-        cobj1.update(shared_key)
-        tmp_key = cobj1.digest()
-
-        derivation_string = b'\x01' + label + b'\x00' + b'\x80\x00'
-        cobj2 = Crypto.Hash.CMAC.new(tmp_key, ciphermod=Crypto.Cipher.AES)
-        cobj2.update(derivation_string)
-        session_mac_key = cobj2.digest()
-
-        return session_mac_key
-
-    @staticmethod
-    def create_key_signature(private_key, attester_public_key, enclave_public_key):
-        return pyelliptic.ECC(privkey=private_key, curve=CURVE).sign(attester_public_key + enclave_public_key)
-
-    @staticmethod
-    def create_mac(mac_key, text):
-        cobj = Crypto.Hash.CMAC.new(mac_key, ciphermod=Crypto.Cipher.AES)
-        cobj.update(text)
-        return cobj.digest()
+    def send_msg4(self, verification_result):
+        msg4 = json.dumps({"verification_result": verification_result}).encode()
+        self.socket.sendall(msg4)
 
 
 def parse_args():
@@ -175,6 +176,8 @@ def init(args):
         logging.basicConfig(level=logging.DEBUG)
     else:
         logging.basicConfig(level=logging.INFO)
+
+    logging.getLogger('sh').setLevel(logging.INFO)
 
 
 def main():
