@@ -5,7 +5,7 @@ import socket
 import logging
 import json
 
-from sgx_attester import util
+from sgx_attester.util import get_public_key, get_private_key, check_json
 from sgx_attester.crypto import generate_ecdh_key_pair
 from sgx_attester.crypto import derive_key
 from sgx_attester.crypto import derive_shared_key
@@ -38,8 +38,8 @@ class Attester(object):
         self.revocation_list = None
         self.shared_key = None
         self.session_mac_key = None
-        self.long_term_private_key = util.get_private_key()
-        self.long_term_public_key = util.get_public_key()
+        self.long_term_private_key = get_private_key()
+        self.long_term_public_key = get_public_key()
 
     def execute(self):
         self.socket.connect((self.dest_host, self.dest_port))
@@ -63,8 +63,7 @@ class Attester(object):
         logging.debug("Received: %s", received_raw)
 
         received_json = json.loads(received_raw.decode('utf8'))
-        assert isinstance(received_json, dict)
-        assert len(received_json) == 1
+        check_json(received_json, dict, 1)
 
         self.epid_group_id = received_json["EPID"]
 
@@ -73,10 +72,8 @@ class Attester(object):
         logging.debug("Received: %s", received_raw)
 
         received_json = json.loads(received_raw.decode('utf8'))
-        assert isinstance(received_json, dict)
-        assert len(received_json) == 1
-        assert isinstance(received_json["public_key"], str)
-        assert len(received_json["public_key"]) == 128
+        check_json(received_json, dict, 1)
+        check_json(received_json["public_key"], str, 128)
 
         self.enclave_public_key = bytes.fromhex(received_json["public_key"])
         logging.info("enclave public key: %r", self.enclave_public_key.hex())
@@ -128,8 +125,7 @@ class Attester(object):
         logging.debug("Received (size: %s): %s", len(received_raw), received_raw)
 
         received_json = json.loads(received_raw.decode('utf8'))
-        assert isinstance(received_json, dict)
-        assert len(received_json) == 3
+        check_json(received_json, dict, 3)
 
         quote = bytes.fromhex(received_json["quote"])
         mac = bytes.fromhex(received_json["mac"])
