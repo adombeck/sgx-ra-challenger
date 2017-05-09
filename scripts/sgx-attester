@@ -35,11 +35,16 @@ class Attester(object):
         self.dest_port = dest_port
         self.epid_group_id = None
         self.enclave_public_key = None
+        self.public_key = None
+        self.quote = None
+        self.msg3_mac = None
+        self.platform_service_security_properties = None
         self.revocation_list = None
         self.shared_key = None
         self.session_mac_key = None
         self.long_term_private_key = get_private_key()
         self.long_term_public_key = get_public_key()
+        self.verification_result = None
 
     def execute(self):
         self.socket.connect((self.dest_host, self.dest_port))
@@ -50,10 +55,10 @@ class Attester(object):
 
         self.send_msg2()
 
-        quote, mac, platform_service_security_properties = self.receive_msg3()
-        verification_result = self.process_msg3(quote, mac, platform_service_security_properties)
+        self.receive_msg3()
+        self.process_msg3()
 
-        self.send_msg4(verification_result)
+        self.send_msg4()
 
     def send_attestation_request(self):
         self.socket.sendall(b"attest")
@@ -118,6 +123,7 @@ class Attester(object):
     def get_revocation_list(epid_group_id):
         # XXX: In production mode, this should connect to the Intel Attestation Service
         # to receive the signature revocation list for the specified EPID group ID
+        logging.warning("Skipping receiving revocation list: Not implemented yet")
         return bytes()
 
     def receive_msg3(self):
@@ -127,22 +133,24 @@ class Attester(object):
         received_json = json.loads(received_raw.decode('utf8'))
         check_json(received_json, dict, 3)
 
-        quote = bytes.fromhex(received_json["quote"])
-        mac = bytes.fromhex(received_json["mac"])
-        platform_service_security_properties = bytes.fromhex(received_json["platform_service_security_properties"])
+        self.quote = bytes.fromhex(received_json["quote"])
+        self.msg3_mac = bytes.fromhex(received_json["mac"])
+        self.platform_service_security_properties = bytes.fromhex(received_json["platform_service_security_properties"])
 
-        return quote, mac, platform_service_security_properties
+    def process_msg3(self):
+        verify_msg3_mac(
+            self.msg3_mac,
+            self.session_mac_key,
+            self.enclave_public_key,
+            self.quote,
+            self.platform_service_security_properties
+        )
 
-    def process_msg3(self, quote, mac, platform_service_security_properties):
-        verify_msg3_mac(mac, self.session_mac_key, self.enclave_public_key, quote, platform_service_security_properties)
-
-        report_data = quote[368:432]
+        report_data = self.quote[368:432]
         verify_msg3_report_data(report_data, self.enclave_public_key, self.public_key, self.shared_key)
 
-        verification_result = self.verify_quote(quote)
-
+        self.verification_result = self.verify_quote(self.quote)
         logging.info("Msg3 processed")
-        return verification_result
 
     @staticmethod
     def verify_quote(quote):
@@ -152,8 +160,8 @@ class Attester(object):
         logging.warning("Skipped verifying quote: Not implemented yet")
         return True
 
-    def send_msg4(self, verification_result):
-        msg4 = json.dumps({"verification_result": verification_result}).encode()
+    def send_msg4(self):
+        msg4 = json.dumps({"verification_result": self.verification_result}).encode()
         self.socket.sendall(msg4)
         logging.info("Msg4 sent")
 
@@ -189,7 +197,6 @@ def main():
 
     with Attester(args.ADDRESS, args.PORT) as attester:
         attester.execute()
-
 
 
 if __name__ == "__main__":
