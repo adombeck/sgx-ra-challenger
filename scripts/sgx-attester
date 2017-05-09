@@ -82,6 +82,7 @@ class Attester(object):
         logging.info("enclave public key: %r", self.enclave_public_key.hex())
 
     def send_msg2(self):
+        logging.debug("Preparing to send Msg2")
         revocation_list = self.get_revocation_list(self.epid_group_id)
 
         self.public_key, private_key = generate_ecdh_key_pair()
@@ -114,6 +115,7 @@ class Attester(object):
                            "revocation_list": revocation_list.hex()}).encode()
 
         self.socket.sendall(msg2)
+        logging.info("Msg2 sent")
 
     @staticmethod
     def get_revocation_list(epid_group_id):
@@ -151,11 +153,13 @@ class Attester(object):
         # XXX: Request developer service access [1] and use IAS [2] to verify quote
         # [1] https://software.intel.com/formfill/sgx-onboarding
         # [2] https://software.intel.com/sites/default/files/managed/7e/3b/ias-api-spec.pdf
+        logging.warning("Skipped verifying quote: Not implemented yet")
         return True
 
     def send_msg4(self, verification_result):
         msg4 = json.dumps({"verification_result": verification_result}).encode()
         self.socket.sendall(msg4)
+        logging.info("Msg4 sent")
 
 
 def parse_args():
