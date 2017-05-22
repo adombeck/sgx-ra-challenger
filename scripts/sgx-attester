@@ -70,7 +70,7 @@ class Attester(object):
         received_json = json.loads(received_raw.decode('utf8'))
         check_json(received_json, dict, 1)
 
-        self.epid_group_id = received_json["EPID"]
+        self.epid_group_id = received_json["epid"]
 
     def receive_msg1(self):
         received_raw = self.socket.recv(1024)
