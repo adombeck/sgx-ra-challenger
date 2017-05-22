@@ -10,8 +10,13 @@ This package enables you to request and perform remote attestation of a remotely
 
 ## Installation
 
-1. Initialize git submodules: `git submodule update --init`
-2. Run the install script: `sudo ./setup.py install`
+1. Initialize git submodules: 
+
+         git submodule update --init
+
+2. Run the install script: 
+
+         sudo ./setup.py install
 
 
 ## Usage
@@ -23,4 +28,4 @@ This creates a public and a private key in `$HOME/.sgx-attester/`. You have to p
 
 To request attestation from host `192.168.0.2`, run:
 
-    `sgx-attester -c 192.168.0.2 6789`.
+    sgx-attester -c 192.168.0.2 6789
