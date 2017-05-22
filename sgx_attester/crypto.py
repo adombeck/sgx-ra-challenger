@@ -2,12 +2,15 @@ import logging
 
 import hmac
 import hashlib
-import pyelliptic
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import utils
 import Crypto.Hash.CMAC
 import Crypto.Cipher.AES
 
-from sgx_attester import asn1
 from sgx_attester.config import CURVE
+EC_CURVE = getattr(ec, CURVE)()
 
 
 class MacMismatchError(Exception):
@@ -29,13 +32,16 @@ def generate_ecdh_key_pair():
     #          bytes.fromhex('79a73872f2b8d6be18917ff7b5d3e5649b1218af39296c241938290bc6ac0c62')[::-1]
     # ecc = pyelliptic.ECC(curve=CURVE, privkey=privkey, pubkey=pubkey)
 
-    ecc = pyelliptic.ECC(curve=CURVE)
+    ec_private_key = ec.generate_private_key(EC_CURVE, default_backend())
 
-    return ecc.get_pubkey()[1:], ecc.get_privkey()
+    private_key = ec_private_key.private_numbers().private_value.to_bytes(32, byteorder='big')
+    public_numbers = ec_private_key.private_numbers().public_numbers
+    public_key = public_numbers.x.to_bytes(32, byteorder='big') + public_numbers.y.to_bytes(32, byteorder='big')
+
+    return public_key, private_key
 
 
 def create_key_signature(private_key: bytes,
-                         public_key: bytes,
                          attester_public_key: bytes,
                          enclave_public_key: bytes):
 
@@ -51,16 +57,20 @@ def create_key_signature(private_key: bytes,
     gb_ga = g_b + g_a
     logging.debug("gb_ga: %r | %r\n", g_b.hex(), g_a.hex())
 
-    asn1_signature = pyelliptic.ECC(privkey=private_key, pubkey=b"\x04" + public_key, curve=CURVE).sign(gb_ga)
-    signature = asn1.signature_from_asn1(asn1_signature)
+    private_value = int.from_bytes(private_key, byteorder='big')
+    ec_private_key = ec.derive_private_key(private_value, EC_CURVE, default_backend())
+
+    # XXX: SHA256?
+    # XXX: signature is DER encoded. is this expected?
+    der_signature = ec_private_key.sign(gb_ga, ec.ECDSA(hashes.SHA256()))
+    r, s = utils.decode_dss_signature(der_signature)
+    signature = r.to_bytes(32, byteorder='big') + s.to_bytes(32, byteorder='big')
 
     logging.debug("attester_public_key (g_b): %r | %r\n", attester_public_key[:32].hex(), attester_public_key[32:].hex())
     logging.debug("enclave_public_key (g_a): %r | %r\n", enclave_public_key[:32].hex(), enclave_public_key[32:].hex())
     logging.debug("signature: %r | %r\n", signature[:32].hex(), signature[32:].hex())
 
     assert len(signature) == 64
-    assert pyelliptic.ECC(pubkey=b"\x04" + public_key, curve=CURVE).verify(asn1.signature_to_asn1(signature), gb_ga)
-
     return signature
 
 
@@ -83,10 +93,20 @@ def derive_key(shared_key, label):
     return session_mac_key
 
 
-def derive_shared_key(private_key, own_public_key, other_public_key):
+def derive_shared_key(private_key, peer_public_key):
     logging.info("Deriving shared key")
-    ecc = pyelliptic.ECC(privkey=private_key, pubkey=b"\x04" + own_public_key, curve=CURVE)
-    return ecc.get_ecdh_key(b'\x04' + other_public_key)
+
+    x = int.from_bytes(peer_public_key[:32], byteorder='big')
+    y = int.from_bytes(peer_public_key[32:], byteorder='big')
+    ec_peer_public_key = ec.EllipticCurvePublicNumbers(x, y, EC_CURVE).public_key(default_backend())
+
+    private_value = int.from_bytes(private_key, byteorder='big')
+    ec_private_key = ec.derive_private_key(private_value, EC_CURVE, default_backend())
+
+    shared_key = ec_private_key.exchange(ec.ECDH(), ec_peer_public_key)
+
+    assert len(shared_key) == 32
+    return shared_key
 
 
 def create_msg2_mac(mac_key, attester_public_key, spid, quote_type, kdf_id, signature):

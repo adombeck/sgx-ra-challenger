@@ -90,11 +90,10 @@ class Attester(object):
         self.public_key, private_key = generate_ecdh_key_pair()
         logging.info("my public key: %r", self.public_key.hex())
 
-        self.shared_key = derive_shared_key(private_key, self.public_key, self.enclave_public_key)
+        self.shared_key = derive_shared_key(private_key, self.enclave_public_key)
         logging.info("shared key: %r", self.shared_key.hex())
 
         key_signature = create_key_signature(self.long_term_private_key,
-                                             self.long_term_public_key,
                                              self.public_key,
                                              self.enclave_public_key)
         logging.info("key signature: %r\n", key_signature.hex())
