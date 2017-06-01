@@ -1,0 +1,2 @@
+class UnexpectedLengthError(Exception):
+    pass
