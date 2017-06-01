@@ -15,6 +15,10 @@ from sgx_attester.crypto import verify_msg3_mac
 from sgx_attester.crypto import verify_msg3_report_data
 
 
+class InvalidExtendedEpidGidError(Exception):
+    pass
+
+
 QUOTE_UNLINKABLE_SIGNATURE = b"\x00\x00"
 QUOTE_LINKABLE_SIGNATURE = b"\x01\x00"
 
@@ -33,7 +37,8 @@ class Attester(object):
     def __init__(self, dest_host, dest_port):
         self.dest_host = dest_host
         self.dest_port = dest_port
-        self.epid_group_id = None
+        self.extended_epid_gid = None
+        self.epid_gid = None
         self.enclave_public_key = None
         self.public_key = None
         self.quote = None
@@ -51,6 +56,8 @@ class Attester(object):
         self.send_attestation_request()
 
         self.receive_msg0()
+        self.process_msg0()
+
         self.receive_msg1()
 
         self.send_msg2()
@@ -70,22 +77,32 @@ class Attester(object):
         received_json = json.loads(received_raw.decode('utf8'))
         check_json(received_json, dict, 1)
 
-        self.epid_group_id = received_json["epid"]
+        self.extended_epid_gid = received_json["extended_epid_gid"]
+
+    def process_msg0(self):
+        if self.extended_epid_gid != 0:
+            # Extended EPID group ID != 0 means that the enclave was provisioned to use another attestation service
+            # than Intel's. This is currently unsupported.
+            # See: https://software.intel.com/en-us/forums/intel-software-guard-extensions-intel-sgx/topic/671363
+            raise InvalidExtendedEpidGidError("Received invalid extended EPID group ID %r" % self.extended_epid_gid)
 
     def receive_msg1(self):
         received_raw = self.socket.recv(1024)
         logging.debug("Received: %s", received_raw)
 
         received_json = json.loads(received_raw.decode('utf8'))
-        check_json(received_json, dict, 1)
+        check_json(received_json, dict, 2)
         check_json(received_json["public_key"], str, 128)
+        check_json(received_json["epid_gid"], str, 8)
 
         self.enclave_public_key = bytes.fromhex(received_json["public_key"])
+        self.epid_gid = bytes.fromhex(received_json["epid_gid"])
         logging.info("enclave public key: %r", self.enclave_public_key.hex())
+        logging.info("EPID group ID: %r", self.epid_gid.hex())
 
     def send_msg2(self):
         logging.debug("Preparing to send Msg2")
-        revocation_list = self.get_revocation_list(self.epid_group_id)
+        revocation_list = self.get_revocation_list(self.extended_epid_gid)
 
         self.public_key, private_key = generate_ecdh_key_pair()
         logging.info("my public key: %r", self.public_key.hex())
@@ -119,9 +136,10 @@ class Attester(object):
         logging.info("Msg2 sent")
 
     @staticmethod
-    def get_revocation_list(epid_group_id):
+    def get_revocation_list(epid_group_id: bytes):
         # XXX: In production mode, this should connect to the Intel Attestation Service
         # to receive the signature revocation list for the specified EPID group ID
+        # sigrl = ias.retrieve_sigrl(epid_group_id)
         logging.warning("Skipping receiving revocation list: Not implemented yet")
         return bytes()
 
@@ -151,13 +169,16 @@ class Attester(object):
         self.verification_result = self.verify_quote(self.quote)
         logging.info("Msg3 processed")
 
-    @staticmethod
-    def verify_quote(quote):
+    def verify_quote(self, quote):
         # XXX: Request developer service access [1] and use IAS [2] to verify quote
         # [1] https://software.intel.com/formfill/sgx-onboarding
         # [2] https://software.intel.com/sites/default/files/managed/7e/3b/ias-api-spec.pdf
+        self.verify_mrenclave()
         logging.warning("Skipped verifying quote: Not implemented yet")
         return True
+
+    def verify_mrenclave(self):
+        logging.warning("Skipped verifying MRENCLAVE: Not implemented yet")
 
     def send_msg4(self):
         msg4 = json.dumps({"verification_result": self.verification_result}).encode()
