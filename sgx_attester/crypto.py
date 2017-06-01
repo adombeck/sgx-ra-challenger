@@ -186,5 +186,6 @@ def verify_quote_mrenclave(quote: bytes, mrenclave: bytes):
 
     quote_mrenclave = quote[OFFSET:OFFSET+MRENCLAVE_SIZE]
 
+
     if not hmac.compare_digest(quote_mrenclave, mrenclave):
         raise MrenclaveMismatchError("MRENCLAVE in quote %r did not match the expected value" % quote_mrenclave)

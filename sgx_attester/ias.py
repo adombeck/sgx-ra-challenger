@@ -6,6 +6,7 @@ import http.client
 import ssl
 import base64
 from sgx_attester.config import IAS_HOST, IAS_PORT, SSL_CERT_PATH, SSL_KEY_PATH
+from sgx_attester.exceptions import SigRlRetrievalFailedError
 
 http.client.HTTPConnection.debuglevel = 1
 
@@ -26,13 +27,14 @@ def connect_to_ias():
 
 
 def retrieve_sigrl(epid_group_id: bytes):
-    logging.debug("epid_group_id: %r", epid_group_id)
     c = connect_to_ias()
     url = "/attestation/sgx/v2/sigrl/%s" % epid_group_id.hex()
-    logging.debug("url: %r", url)
+
     c.request("GET", url)
     r = c.getresponse()
-    logging.info("Got response %r %r", r.status, r.reason)
+    if r.status != 200:
+        raise SigRlRetrievalFailedError("Intel Attestation Service responded with %r %r", r.status, r.reason)
+
     data = r.read()
     logging.info("Response data: %r", data)
     return base64.b64decode(data, validate=True)
