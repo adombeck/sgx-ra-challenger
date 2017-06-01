@@ -5,7 +5,7 @@ import socket
 import logging
 import json
 
-from sgx_attester.util import get_public_key, get_private_key, check_json
+from sgx_attester.util import get_public_key, get_private_key, get_mrenclave, check_json
 from sgx_attester.crypto import generate_ecdh_key_pair
 from sgx_attester.crypto import derive_key
 from sgx_attester.crypto import derive_shared_key
@@ -13,6 +13,8 @@ from sgx_attester.crypto import create_key_signature
 from sgx_attester.crypto import create_msg2_mac
 from sgx_attester.crypto import verify_msg3_mac
 from sgx_attester.crypto import verify_msg3_report_data
+from sgx_attester.crypto import verify_quote_mrenclave
+from sgx_attester import ias
 
 
 class InvalidExtendedEpidGidError(Exception):
@@ -49,6 +51,7 @@ class Attester(object):
         self.session_mac_key = None
         self.long_term_private_key = get_private_key()
         self.long_term_public_key = get_public_key()
+        self.mrenclave = get_mrenclave()
         self.verification_result = None
 
     def execute(self):
@@ -102,7 +105,7 @@ class Attester(object):
 
     def send_msg2(self):
         logging.debug("Preparing to send Msg2")
-        revocation_list = self.get_revocation_list(self.extended_epid_gid)
+        revocation_list = self.get_revocation_list(self.epid_gid)
 
         self.public_key, private_key = generate_ecdh_key_pair()
         logging.info("my public key: %r", self.public_key.hex())
@@ -136,12 +139,8 @@ class Attester(object):
         logging.info("Msg2 sent")
 
     @staticmethod
-    def get_revocation_list(epid_group_id: bytes):
-        # XXX: In production mode, this should connect to the Intel Attestation Service
-        # to receive the signature revocation list for the specified EPID group ID
-        # sigrl = ias.retrieve_sigrl(epid_group_id)
-        logging.warning("Skipping receiving revocation list: Not implemented yet")
-        return bytes()
+    def get_revocation_list(epid_gid: bytes):
+        return ias.retrieve_sigrl(epid_gid)
 
     def receive_msg3(self):
         received_raw = self.socket.recv(4096)
@@ -153,6 +152,8 @@ class Attester(object):
         self.quote = bytes.fromhex(received_json["quote"])
         self.msg3_mac = bytes.fromhex(received_json["mac"])
         self.platform_service_security_properties = bytes.fromhex(received_json["platform_service_security_properties"])
+
+        logging.debug("quote: %r", self.quote)
 
     def process_msg3(self):
         verify_msg3_mac(
@@ -173,12 +174,9 @@ class Attester(object):
         # XXX: Request developer service access [1] and use IAS [2] to verify quote
         # [1] https://software.intel.com/formfill/sgx-onboarding
         # [2] https://software.intel.com/sites/default/files/managed/7e/3b/ias-api-spec.pdf
-        self.verify_mrenclave()
+        verify_quote_mrenclave(quote, self.mrenclave)
         logging.warning("Skipped verifying quote: Not implemented yet")
         return True
-
-    def verify_mrenclave(self):
-        logging.warning("Skipped verifying MRENCLAVE: Not implemented yet")
 
     def send_msg4(self):
         msg4 = json.dumps({"verification_result": self.verification_result}).encode()

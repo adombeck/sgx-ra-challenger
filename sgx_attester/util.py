@@ -17,6 +17,12 @@ def get_public_key():
         return bytes.fromhex(pubkey_file.read())
 
 
+def get_mrenclave():
+    mrenclave_path = os.path.join(KEY_DIR, "mrenclave")
+    with open(mrenclave_path) as f:
+        return bytes.fromhex(f.read())
+
+
 def check_json(data, type_, length=None):
     if not isinstance(data, type_):
         raise TypeError("Received JSON is of type %r, expected type %r" % (type(data), type_))

@@ -21,6 +21,10 @@ class HashMismatchError(Exception):
     pass
 
 
+class MrenclaveMismatchError(Exception):
+    pass
+
+
 def generate_ecdh_key_pair():
     # P-256 (aka secp256r1 aka prime256v1) was deprecated by the NSA in 2015 for unknown reasons.
     # See: https://blog.cryptographyengineering.com/2015/10/22/a-riddle-wrapped-in-curve/
@@ -172,3 +176,15 @@ def verify_msg3_report_data(report_data, enclave_public_key, attester_public_key
 
     if not hmac.compare_digest(new_report_data, report_data):
         raise HashMismatchError("Msg3 report data %r does not match calculated report data %r" % (report_data, new_report_data))
+
+
+def verify_quote_mrenclave(quote: bytes, mrenclave: bytes):
+    REPORT_BODY_OFFSET = 48  # Offset of report_body in quote_t
+    MRENCLAVE_OFFSET = 64  # Offset of mr_enclave in report_body_t
+    OFFSET = REPORT_BODY_OFFSET + MRENCLAVE_OFFSET  # Offset of mr_enclave in quote_t
+    MRENCLAVE_SIZE = 32
+
+    quote_mrenclave = quote[OFFSET:OFFSET+MRENCLAVE_SIZE]
+
+    if not hmac.compare_digest(quote_mrenclave, mrenclave):
+        raise MrenclaveMismatchError("MRENCLAVE in quote %r did not match the expected value" % quote_mrenclave)
