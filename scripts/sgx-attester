@@ -14,15 +14,12 @@ from sgx_attester.crypto import create_msg2_mac
 from sgx_attester.crypto import verify_msg3_mac
 from sgx_attester.crypto import verify_msg3_report_data
 from sgx_attester.crypto import verify_quote_mrenclave
+from sgx_attester.config import QUOTE_TYPE, SPID
 from sgx_attester import ias
 
 
 class InvalidExtendedEpidGidError(Exception):
     pass
-
-
-QUOTE_UNLINKABLE_SIGNATURE = b"\x00\x00"
-QUOTE_LINKABLE_SIGNATURE = b"\x01\x00"
 
 KDF_ID = b"\x01\x00"
 
@@ -52,6 +49,8 @@ class Attester(object):
         self.long_term_private_key = get_private_key()
         self.long_term_public_key = get_public_key()
         self.mrenclave = get_mrenclave()
+        self.quote_type = QUOTE_TYPE
+        self.spid = bytes.fromhex(SPID)
         self.verification_result = None
 
     def execute(self):
@@ -121,15 +120,12 @@ class Attester(object):
         self.session_mac_key = derive_key(self.shared_key, b'SMK')
         logging.info("session MAC key: %r\n", self.session_mac_key.hex())
 
-        fake_spid = b"Service X" + b"\x00" * 7
-        quote_type = QUOTE_UNLINKABLE_SIGNATURE
-
-        mac = create_msg2_mac(self.session_mac_key, self.public_key, fake_spid, quote_type, KDF_ID, key_signature)
+        mac = create_msg2_mac(self.session_mac_key, self.public_key, self.spid, self.quote_type, KDF_ID, key_signature)
         logging.info("MAC: %r\n", mac.hex())
 
         msg2 = json.dumps({"public_key": self.public_key.hex(),
-                           "spid": fake_spid.hex(),
-                           "quote_type": quote_type.hex(),
+                           "spid": self.spid.hex(),
+                           "quote_type": self.quote_type.hex(),
                            "kdf_id": KDF_ID.hex(),
                            "key_signature": key_signature.hex(),
                            "mac": mac.hex(),
@@ -167,7 +163,8 @@ class Attester(object):
         report_data = self.quote[368:432]
         verify_msg3_report_data(report_data, self.enclave_public_key, self.public_key, self.shared_key)
 
-        self.verification_result = self.verify_quote(self.quote)
+        self.verify_quote(self.quote)
+        self.verification_result = True
         logging.info("Msg3 processed")
 
     def verify_quote(self, quote):
@@ -175,8 +172,7 @@ class Attester(object):
         # [1] https://software.intel.com/formfill/sgx-onboarding
         # [2] https://software.intel.com/sites/default/files/managed/7e/3b/ias-api-spec.pdf
         verify_quote_mrenclave(quote, self.mrenclave)
-        logging.warning("Skipped verifying quote: Not implemented yet")
-        return True
+        ias.verify_quote(quote)
 
     def send_msg4(self):
         msg4 = json.dumps({"verification_result": self.verification_result}).encode()

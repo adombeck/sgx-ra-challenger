@@ -2,43 +2,65 @@
 Specification: https://software.intel.com/sites/default/files/managed/7e/3b/ias-api-spec.pdf"""
 
 import logging
-import http.client
-import ssl
+import requests
 import base64
-from sgx_attester.config import IAS_HOST, IAS_PORT, SSL_CERT_PATH, SSL_KEY_PATH
-from sgx_attester.exceptions import SigRlRetrievalFailedError
-
-http.client.HTTPConnection.debuglevel = 1
-
-
-def get_ssl_context():
-    context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-    # XXX: Load only the Intel CA instead of all default certs
-    context.load_default_certs()
-    context.load_cert_chain(certfile=SSL_CERT_PATH, keyfile=SSL_KEY_PATH)
-    context.verify_mode = ssl.CERT_REQUIRED
-    context.check_hostname = True
-    return context
-
-
-def connect_to_ias():
-    ssl_context = get_ssl_context()
-    return http.client.HTTPSConnection(IAS_HOST, port=IAS_PORT, context=ssl_context)
+import os
+import hmac
+from sgx_attester.config import IAS_HOST, IAS_PORT, SSL_CERT_PATH, SSL_KEY_PATH, IAS_PUBKEY_PATH
+from sgx_attester.exceptions import QuoteVerificationError
+from sgx_attester import crypto
 
 
 def retrieve_sigrl(epid_group_id: bytes):
-    c = connect_to_ias()
-    url = "/attestation/sgx/v2/sigrl/%s" % epid_group_id.hex()
+    url = "https://%s:%s/attestation/sgx/v2/sigrl/%s" % (IAS_HOST, IAS_PORT, epid_group_id.hex())
 
-    c.request("GET", url)
-    r = c.getresponse()
-    if r.status != 200:
-        raise SigRlRetrievalFailedError("Intel Attestation Service responded with %r %r", r.status, r.reason)
+    response = requests.get(url, cert=(SSL_CERT_PATH, SSL_KEY_PATH))
 
-    data = r.read()
-    logging.info("Response data: %r", data)
-    return base64.b64decode(data, validate=True)
+    if response.status_code != 200:
+        response.raise_for_status()
+
+    logging.info("response body: %r", response.content)
+    return base64.b64decode(response.content, validate=True)
+
+
+def get_nonce() -> str:
+    return os.urandom(16).hex()
 
 
 def verify_quote(quote: bytes):
-    pass
+    url = "https://%s:%s/attestation/sgx/v2/report" % (IAS_HOST, IAS_PORT)
+    nonce = get_nonce()
+
+    body = {
+        "isvEnclaveQuote": base64.b64encode(quote).decode(),
+        "nonce": nonce
+    }
+
+    response = requests.post(url, json=body, cert=(SSL_CERT_PATH, SSL_KEY_PATH))
+
+    if response.status_code != 201:
+        response.raise_for_status()
+
+    body = response.json()
+    logging.debug("response headers: %r", response.headers)
+    logging.debug("response body: %r", body)
+
+    if body["isvEnclaveQuoteStatus"] != "OK":
+        raise QuoteVerificationError("IAS returned quote status %r", body["isvEnclaveQuoteStatus"])
+
+    if not hmac.compare_digest(nonce, body["nonce"]):
+        raise QuoteVerificationError("IAS returned incorrect nonce")
+
+    verify_ias_response_signature(response)
+
+    if not "epidPseudonym" in body:
+        return body["id"]
+    else:
+        return body["id"], body["epidPseudonym"]
+
+
+def verify_ias_response_signature(response):
+    signature = base64.b64decode(response.headers["x-iasreport-signature"])
+    with open(IAS_PUBKEY_PATH, 'br') as f:
+        pubkey = f.read()
+    crypto.verify_ias_signature(signature, pubkey, response.content)

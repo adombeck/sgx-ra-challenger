@@ -3,9 +3,9 @@ import logging
 import hmac
 import hashlib
 from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import utils
+from cryptography.hazmat.primitives.asymmetric import ec, utils, padding
+from cryptography.hazmat.primitives.serialization import load_pem_public_key
 import Crypto.Hash.CMAC
 import Crypto.Cipher.AES
 
@@ -186,6 +186,15 @@ def verify_quote_mrenclave(quote: bytes, mrenclave: bytes):
 
     quote_mrenclave = quote[OFFSET:OFFSET+MRENCLAVE_SIZE]
 
-
     if not hmac.compare_digest(quote_mrenclave, mrenclave):
         raise MrenclaveMismatchError("MRENCLAVE in quote %r did not match the expected value" % quote_mrenclave)
+
+
+def verify_ias_signature(signature: bytes, pem_pubkey: bytes, body: bytes):
+    pubkey = load_pem_public_key(pem_pubkey, backend=default_backend())
+    pubkey.verify(
+        signature,
+        body,
+        padding.PKCS1v15(),
+        hashes.SHA256()
+    )

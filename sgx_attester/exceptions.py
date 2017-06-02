@@ -2,5 +2,5 @@ class UnexpectedLengthError(Exception):
     pass
 
 
-class SigRlRetrievalFailedError(Exception):
+class QuoteVerificationError(Exception):
     pass
