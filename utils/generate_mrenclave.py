@@ -4,7 +4,7 @@ import argparse
 import sh
 import os
 
-from sgx_attester.config import KEY_DIR
+from sgx_ra_challenger.config import KEY_DIR
 
 # XXX: Is the offset fixed?
 MRENCLAVE_OFFSET = 960  # Offset of MRENCLAVE value in manifest signature file

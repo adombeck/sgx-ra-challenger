@@ -6,9 +6,9 @@ import requests
 import base64
 import os
 import hmac
-from sgx_attester.config import IAS_HOST, IAS_PORT, SSL_CERT_PATH, SSL_KEY_PATH, IAS_PUBKEY_PATH
-from sgx_attester.exceptions import QuoteVerificationError
-from sgx_attester import crypto
+from sgx_ra_challenger.config import IAS_HOST, IAS_PORT, SSL_CERT_PATH, SSL_KEY_PATH, IAS_PUBKEY_PATH
+from sgx_ra_challenger.exceptions import QuoteVerificationError
+from sgx_ra_challenger import crypto
 
 
 def retrieve_sigrl(epid_group_id: bytes):
@@ -31,8 +31,10 @@ def verify_quote(quote: bytes):
     url = "https://%s:%s/attestation/sgx/v2/report" % (IAS_HOST, IAS_PORT)
     nonce = get_nonce()
 
+    encoded_quote = base64.b64encode(quote).decode()
+
     body = {
-        "isvEnclaveQuote": base64.b64encode(quote).decode(),
+        "isvEnclaveQuote": encoded_quote,
         "nonce": nonce
     }
 
@@ -53,6 +55,8 @@ def verify_quote(quote: bytes):
 
     verify_ias_response_signature(response)
 
+    verify_ias_response_quote(body, encoded_quote)
+
     if not "epidPseudonym" in body:
         return body["id"]
     else:
@@ -64,3 +68,7 @@ def verify_ias_response_signature(response):
     with open(IAS_PUBKEY_PATH, 'br') as f:
         pubkey = f.read()
     crypto.verify_ias_signature(signature, pubkey, response.content)
+
+
+def verify_ias_response_quote(response_body, encoded_quote):
+    return hmac.compare_digest(response_body["isvEnclaveQuoteBody"], encoded_quote)

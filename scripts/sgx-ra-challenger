@@ -5,26 +5,24 @@ import socket
 import logging
 import json
 
-from sgx_attester.util import get_public_key, get_private_key, get_mrenclave, check_json
-from sgx_attester.crypto import generate_ecdh_key_pair
-from sgx_attester.crypto import derive_key
-from sgx_attester.crypto import derive_shared_key
-from sgx_attester.crypto import create_key_signature
-from sgx_attester.crypto import create_msg2_mac
-from sgx_attester.crypto import verify_msg3_mac
-from sgx_attester.crypto import verify_msg3_report_data
-from sgx_attester.crypto import verify_quote_mrenclave
-from sgx_attester.config import QUOTE_TYPE, SPID
-from sgx_attester import ias
+from sgx_ra_challenger.util import get_private_key, get_mrenclave, check_json
+from sgx_ra_challenger.crypto import generate_ecdh_key_pair
+from sgx_ra_challenger.crypto import derive_key
+from sgx_ra_challenger.crypto import derive_shared_key
+from sgx_ra_challenger.crypto import create_key_signature
+from sgx_ra_challenger.crypto import create_msg2_mac
+from sgx_ra_challenger.crypto import verify_msg3_mac
+from sgx_ra_challenger.crypto import verify_msg3_report_data
+from sgx_ra_challenger.crypto import verify_quote_mrenclave
+from sgx_ra_challenger.config import QUOTE_TYPE, SPID, KDF_ID
+from sgx_ra_challenger import ias
 
 
 class InvalidExtendedEpidGidError(Exception):
     pass
 
-KDF_ID = b"\x01\x00"
 
-
-class Attester(object):
+class Challenger(object):
     def __enter__(self):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.__enter__()
@@ -41,13 +39,14 @@ class Attester(object):
         self.enclave_public_key = None
         self.public_key = None
         self.quote = None
+        self.revocation_list = None
+        self.key_signature = None
+        self.msg2_mac = None
         self.msg3_mac = None
         self.platform_service_security_properties = None
-        self.revocation_list = None
         self.shared_key = None
         self.session_mac_key = None
         self.long_term_private_key = get_private_key()
-        self.long_term_public_key = get_public_key()
         self.mrenclave = get_mrenclave()
         self.quote_type = QUOTE_TYPE
         self.spid = bytes.fromhex(SPID)
@@ -62,6 +61,7 @@ class Attester(object):
 
         self.receive_msg1()
 
+        self.create_msg2()
         self.send_msg2()
 
         self.receive_msg3()
@@ -73,6 +73,7 @@ class Attester(object):
         self.socket.sendall(b"attest")
 
     def receive_msg0(self):
+        logging.info("Waiting for msg0")
         received_raw = self.socket.recv(1024)
         logging.debug("Received: %s", received_raw)
 
@@ -80,6 +81,7 @@ class Attester(object):
         check_json(received_json, dict, 1)
 
         self.extended_epid_gid = received_json["extended_epid_gid"]
+        logging.info("Msg0 received")
 
     def process_msg0(self):
         if self.extended_epid_gid != 0:
@@ -89,6 +91,7 @@ class Attester(object):
             raise InvalidExtendedEpidGidError("Received invalid extended EPID group ID %r" % self.extended_epid_gid)
 
     def receive_msg1(self):
+        logging.info("Waiting for msg1")
         received_raw = self.socket.recv(1024)
         logging.debug("Received: %s", received_raw)
 
@@ -99,40 +102,50 @@ class Attester(object):
 
         self.enclave_public_key = bytes.fromhex(received_json["public_key"])
         self.epid_gid = bytes.fromhex(received_json["epid_gid"])
-        logging.info("enclave public key: %r", self.enclave_public_key.hex())
-        logging.info("EPID group ID: %r", self.epid_gid.hex())
+        logging.debug("enclave public key: %r", self.enclave_public_key.hex())
+        logging.debug("EPID group ID: %r", self.epid_gid.hex())
+        logging.info("Msg1 received")
 
-    def send_msg2(self):
-        logging.debug("Preparing to send Msg2")
-        revocation_list = self.get_revocation_list(self.epid_gid)
+    def create_msg2(self):
+        logging.info("Creating msg2")
+        self.revocation_list = self.get_revocation_list(self.epid_gid)
 
         self.public_key, private_key = generate_ecdh_key_pair()
-        logging.info("my public key: %r", self.public_key.hex())
+        logging.debug("my public key: %r", self.public_key.hex())
 
         self.shared_key = derive_shared_key(private_key, self.enclave_public_key)
-        logging.info("shared key: %r", self.shared_key.hex())
+        logging.debug("shared key: %r", self.shared_key.hex())
 
-        key_signature = create_key_signature(self.long_term_private_key,
+        self.key_signature = create_key_signature(self.long_term_private_key,
                                              self.public_key,
                                              self.enclave_public_key)
-        logging.info("key signature: %r\n", key_signature.hex())
+        logging.debug("key signature: %r\n", self.key_signature.hex())
 
         self.session_mac_key = derive_key(self.shared_key, b'SMK')
-        logging.info("session MAC key: %r\n", self.session_mac_key.hex())
+        logging.debug("session MAC key: %r\n", self.session_mac_key.hex())
 
-        mac = create_msg2_mac(self.session_mac_key, self.public_key, self.spid, self.quote_type, KDF_ID, key_signature)
-        logging.info("MAC: %r\n", mac.hex())
+        self.msg2_mac = create_msg2_mac(self.session_mac_key,
+                                        self.public_key,
+                                        self.spid,
+                                        self.quote_type,
+                                        KDF_ID,
+                                        self.key_signature)
 
+        logging.debug("MAC: %r\n", self.msg2_mac.hex())
+        logging.info("msg2 created")
+
+    def send_msg2(self):
+        logging.info("Sending msg2")
         msg2 = json.dumps({"public_key": self.public_key.hex(),
                            "spid": self.spid.hex(),
                            "quote_type": self.quote_type.hex(),
                            "kdf_id": KDF_ID.hex(),
-                           "key_signature": key_signature.hex(),
-                           "mac": mac.hex(),
-                           "revocation_list": revocation_list.hex()}).encode()
+                           "key_signature": self.key_signature.hex(),
+                           "mac": self.msg2_mac.hex(),
+                           "revocation_list": self.revocation_list.hex()}).encode()
 
         self.socket.sendall(msg2)
-        logging.info("Msg2 sent")
+        logging.info("msg2 sent")
 
     @staticmethod
     def get_revocation_list(epid_gid: bytes):
@@ -152,6 +165,7 @@ class Attester(object):
         logging.debug("quote: %r", self.quote)
 
     def process_msg3(self):
+        logging.info("Processing msg3")
         verify_msg3_mac(
             self.msg3_mac,
             self.session_mac_key,
@@ -168,13 +182,11 @@ class Attester(object):
         logging.info("Msg3 processed")
 
     def verify_quote(self, quote):
-        # XXX: Request developer service access [1] and use IAS [2] to verify quote
-        # [1] https://software.intel.com/formfill/sgx-onboarding
-        # [2] https://software.intel.com/sites/default/files/managed/7e/3b/ias-api-spec.pdf
         verify_quote_mrenclave(quote, self.mrenclave)
         ias.verify_quote(quote)
 
     def send_msg4(self):
+        logging.info("Sending msg4")
         msg4 = json.dumps({"verification_result": self.verification_result}).encode()
         self.socket.sendall(msg4)
         logging.info("Msg4 sent")
@@ -209,8 +221,8 @@ def main():
     if args.listen:
         raise NotImplementedError()
 
-    with Attester(args.ADDRESS, args.PORT) as attester:
-        attester.execute()
+    with Challenger(args.ADDRESS, args.PORT) as challenger:
+        challenger.execute()
 
 
 if __name__ == "__main__":

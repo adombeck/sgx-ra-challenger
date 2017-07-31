@@ -4,12 +4,12 @@ import argparse
 import os
 import sh
 
-from sgx_attester import crypto
-from sgx_attester.config import KEY_DIR
+from sgx_ra_challenger import crypto
+from sgx_ra_challenger.config import KEY_DIR
 
 
 def parse_args():
-    parser = argparse.ArgumentParser("Generates key files for the attester")
+    parser = argparse.ArgumentParser("Generates key files for the challenger")
     parser.add_argument("--outdir", "-o", default=KEY_DIR, help="Output directory")
     return parser.parse_args()
 
@@ -20,8 +20,8 @@ def main():
     if args.outdir == KEY_DIR:
         sh.install("-m", "700", "-d", KEY_DIR)
 
-    pubkey_path = os.path.join(args.outdir, "attester_public.key")
-    privkey_path = os.path.join(args.outdir, "attester_private.key")
+    pubkey_path = os.path.join(args.outdir, "challenger_public.key")
+    privkey_path = os.path.join(args.outdir, "challenger_private.key")
 
     if os.path.exists(pubkey_path):
         raise FileExistsError("File %r already exists" % pubkey_path)

@@ -9,7 +9,7 @@ from cryptography.hazmat.primitives.serialization import load_pem_public_key
 import Crypto.Hash.CMAC
 import Crypto.Cipher.AES
 
-from sgx_attester.config import CURVE
+from sgx_ra_challenger.config import CURVE
 EC_CURVE = getattr(ec, CURVE)()
 
 
@@ -46,16 +46,16 @@ def generate_ecdh_key_pair():
 
 
 def create_key_signature(private_key: bytes,
-                         attester_public_key: bytes,
+                         challenger_public_key: bytes,
                          enclave_public_key: bytes):
 
     logging.info("Creating key signature")
 
-    assert len(attester_public_key) == 64
+    assert len(challenger_public_key) == 64
     assert len(enclave_public_key) == 64
 
     # Reverse public key byte order
-    g_b = attester_public_key[:32][::-1] + attester_public_key[32:][::-1]
+    g_b = challenger_public_key[:32][::-1] + challenger_public_key[32:][::-1]
     g_a = enclave_public_key[:32][::-1] + enclave_public_key[32:][::-1]
 
     gb_ga = g_b + g_a
@@ -64,13 +64,11 @@ def create_key_signature(private_key: bytes,
     private_value = int.from_bytes(private_key, byteorder='big')
     ec_private_key = ec.derive_private_key(private_value, EC_CURVE, default_backend())
 
-    # XXX: SHA256?
-    # XXX: signature is DER encoded. is this expected?
     der_signature = ec_private_key.sign(gb_ga, ec.ECDSA(hashes.SHA256()))
     r, s = utils.decode_dss_signature(der_signature)
     signature = r.to_bytes(32, byteorder='big') + s.to_bytes(32, byteorder='big')
 
-    logging.debug("attester_public_key (g_b): %r | %r\n", attester_public_key[:32].hex(), attester_public_key[32:].hex())
+    logging.debug("challenger_public_key (g_b): %r | %r\n", challenger_public_key[:32].hex(), challenger_public_key[32:].hex())
     logging.debug("enclave_public_key (g_a): %r | %r\n", enclave_public_key[:32].hex(), enclave_public_key[32:].hex())
     logging.debug("signature: %r | %r\n", signature[:32].hex(), signature[32:].hex())
 
@@ -113,11 +111,11 @@ def derive_shared_key(private_key, peer_public_key):
     return shared_key
 
 
-def create_msg2_mac(mac_key, attester_public_key, spid, quote_type, kdf_id, signature):
+def create_msg2_mac(mac_key, challenger_public_key, spid, quote_type, kdf_id, signature):
     logging.info("Creating msg2 MAC")
 
     # Reverse public key byte order
-    g_b = attester_public_key[:32][::-1] + attester_public_key[32:][::-1]
+    g_b = challenger_public_key[:32][::-1] + challenger_public_key[32:][::-1]
 
     # Reverse signature byte order
     reversed_signature = signature[:32][::-1] + signature[32:][::-1]
@@ -159,12 +157,12 @@ def verify_msg3_mac(mac, session_mac_key, enclave_public_key, quote, platform_se
         raise MacMismatchError("Msg3 MAC %r does not match calculated MAC %r" % (mac, new_mac))
 
 
-def verify_msg3_report_data(report_data, enclave_public_key, attester_public_key, shared_key):
+def verify_msg3_report_data(report_data, enclave_public_key, challenger_public_key, shared_key):
     vk_key = derive_key(shared_key, label=b"VK")
 
     # Reverse public key byte order
     g_a = enclave_public_key[:32][::-1] + enclave_public_key[32:][::-1]
-    g_b = attester_public_key[:32][::-1] + attester_public_key[32:][::-1]
+    g_b = challenger_public_key[:32][::-1] + challenger_public_key[32:][::-1]
 
     m = hashlib.sha256()
     m.update(g_a)

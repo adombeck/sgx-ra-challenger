@@ -6,8 +6,8 @@ DIR=$PWD
 
 echo "Installing pycrypto"
 cd $DIR/pycrypto
-python3.5 ./setup.py install
+sudo python3.5 ./setup.py install
 
-echo "Installing python-sgx-attester"
+echo "Installing python-sgx-challenger"
 cd $DIR
-python3.5 ./setup.py install
+sudo python3.5 ./setup.py install

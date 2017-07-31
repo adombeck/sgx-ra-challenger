@@ -20,7 +20,7 @@ import os
 #     long_description = f.read()
 
 setup(
-    name='sgx_attester',
+    name='sgx_ra_challenger',
 
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
@@ -69,7 +69,7 @@ setup(
     # simple. Or you can use find_packages().
     packages=find_packages(exclude=['contrib', 'docs', 'tests']),
 
-    scripts=["scripts/sgx-attester"],
+    scripts=["scripts/sgx-ra-challenger"],
 
     # Alternatively, if you want to distribute just a my_module.py, uncomment
     # this:
