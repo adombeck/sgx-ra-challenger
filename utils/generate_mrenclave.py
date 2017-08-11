@@ -3,10 +3,13 @@
 import argparse
 import sh
 import os
+import sys
 
-from sgx_ra_challenger.config import KEY_DIR
+DIR = os.path.dirname(__file__)
+sys.path.append(os.path.join(DIR, '..'))
 
-# XXX: Is the offset fixed?
+from config import KEY_DIR
+
 MRENCLAVE_OFFSET = 960  # Offset of MRENCLAVE value in manifest signature file
 MRENCLAVE_SIZE = 32  # Size of MRENCLAVE value
 

@@ -11,6 +11,7 @@ from setuptools import setup, find_packages
 from codecs import open
 
 import os
+import shutil
 
 # from os import path
 # here = path.abspath(path.dirname(__file__))
@@ -18,6 +19,11 @@ import os
 # # Get the long description from the README file
 # with open(path.join(here, 'README.md'), encoding='utf-8') as f:
 #     long_description = f.read()
+
+# Copy config file
+shutil.copyfile("config.py", "sgx_ra_challenger/config.py")
+
+
 
 setup(
     name='sgx_ra_challenger',
