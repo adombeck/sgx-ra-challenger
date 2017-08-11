@@ -23,7 +23,7 @@ def get_mrenclave():
         return bytes.fromhex(f.read())
 
 
-def check_json(data, type_, length=None):
+def check_msg(data, type_, length=None):
     if not isinstance(data, type_):
         raise TypeError("Received JSON is of type %r, expected type %r" % (type(data), type_))
 

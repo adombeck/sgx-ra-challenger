@@ -4,3 +4,7 @@ class UnexpectedLengthError(Exception):
 
 class QuoteVerificationError(Exception):
     pass
+
+
+class ConnectionClosedError(Exception):
+    pass

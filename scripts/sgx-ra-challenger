@@ -3,9 +3,10 @@
 import argparse
 import socket
 import logging
-import json
+import datetime
 
-from sgx_ra_challenger.util import get_private_key, get_mrenclave, check_json
+from sgx_ra_challenger.util import get_private_key, get_mrenclave, check_msg
+from sgx_ra_challenger.socket_util import receive_msg, send_msg
 from sgx_ra_challenger.crypto import generate_ecdh_key_pair
 from sgx_ra_challenger.crypto import derive_key
 from sgx_ra_challenger.crypto import derive_shared_key
@@ -74,13 +75,10 @@ class Challenger(object):
 
     def receive_msg0(self):
         logging.info("Waiting for msg0")
-        received_raw = self.socket.recv(1024)
-        logging.debug("Received: %s", received_raw)
+        msg0 = receive_msg(self.socket)
+        check_msg(msg0, dict, 1)
 
-        received_json = json.loads(received_raw.decode('utf8'))
-        check_json(received_json, dict, 1)
-
-        self.extended_epid_gid = received_json["extended_epid_gid"]
+        self.extended_epid_gid = msg0["extended_epid_gid"]
         logging.info("Msg0 received")
 
     def process_msg0(self):
@@ -92,16 +90,13 @@ class Challenger(object):
 
     def receive_msg1(self):
         logging.info("Waiting for msg1")
-        received_raw = self.socket.recv(1024)
-        logging.debug("Received: %s", received_raw)
+        msg1 = receive_msg(self.socket)
+        check_msg(msg1, dict, 2)
+        check_msg(msg1["public_key"], str, 128)
+        check_msg(msg1["epid_gid"], str, 8)
 
-        received_json = json.loads(received_raw.decode('utf8'))
-        check_json(received_json, dict, 2)
-        check_json(received_json["public_key"], str, 128)
-        check_json(received_json["epid_gid"], str, 8)
-
-        self.enclave_public_key = bytes.fromhex(received_json["public_key"])
-        self.epid_gid = bytes.fromhex(received_json["epid_gid"])
+        self.enclave_public_key = bytes.fromhex(msg1["public_key"])
+        self.epid_gid = bytes.fromhex(msg1["epid_gid"])
         logging.debug("enclave public key: %r", self.enclave_public_key.hex())
         logging.debug("EPID group ID: %r", self.epid_gid.hex())
         logging.info("Msg1 received")
@@ -117,8 +112,8 @@ class Challenger(object):
         logging.debug("shared key: %r", self.shared_key.hex())
 
         self.key_signature = create_key_signature(self.long_term_private_key,
-                                             self.public_key,
-                                             self.enclave_public_key)
+                                                  self.public_key,
+                                                  self.enclave_public_key)
         logging.debug("key signature: %r\n", self.key_signature.hex())
 
         self.session_mac_key = derive_key(self.shared_key, b'SMK')
@@ -136,15 +131,17 @@ class Challenger(object):
 
     def send_msg2(self):
         logging.info("Sending msg2")
-        msg2 = json.dumps({"public_key": self.public_key.hex(),
-                           "spid": self.spid.hex(),
-                           "quote_type": self.quote_type.hex(),
-                           "kdf_id": KDF_ID.hex(),
-                           "key_signature": self.key_signature.hex(),
-                           "mac": self.msg2_mac.hex(),
-                           "revocation_list": self.revocation_list.hex()}).encode()
+        msg2 = {
+            "public_key": self.public_key.hex(),
+            "spid": self.spid.hex(),
+            "quote_type": self.quote_type.hex(),
+            "kdf_id": KDF_ID.hex(),
+            "key_signature": self.key_signature.hex(),
+            "mac": self.msg2_mac.hex(),
+            "revocation_list": self.revocation_list.hex()
+        }
 
-        self.socket.sendall(msg2)
+        send_msg(self.socket, msg2)
         logging.info("msg2 sent")
 
     @staticmethod
@@ -152,15 +149,13 @@ class Challenger(object):
         return ias.retrieve_sigrl(epid_gid)
 
     def receive_msg3(self):
-        received_raw = self.socket.recv(4096)
-        logging.debug("Received (size: %s): %s", len(received_raw), received_raw)
+        logging.info("Waiting for msg3")
+        msg3 = receive_msg(self.socket)
+        check_msg(msg3, dict, 3)
 
-        received_json = json.loads(received_raw.decode('utf8'))
-        check_json(received_json, dict, 3)
-
-        self.quote = bytes.fromhex(received_json["quote"])
-        self.msg3_mac = bytes.fromhex(received_json["mac"])
-        self.platform_service_security_properties = bytes.fromhex(received_json["platform_service_security_properties"])
+        self.quote = bytes.fromhex(msg3["quote"])
+        self.msg3_mac = bytes.fromhex(msg3["mac"])
+        self.platform_service_security_properties = bytes.fromhex(msg3["platform_service_security_properties"])
 
         logging.debug("quote: %r", self.quote)
 
@@ -187,8 +182,8 @@ class Challenger(object):
 
     def send_msg4(self):
         logging.info("Sending msg4")
-        msg4 = json.dumps({"verification_result": self.verification_result}).encode()
-        self.socket.sendall(msg4)
+        msg4 = {"verification_result": self.verification_result}
+        send_msg(self.socket, msg4)
         logging.info("Msg4 sent")
 
 
@@ -221,8 +216,11 @@ def main():
     if args.listen:
         raise NotImplementedError()
 
+    t0 = datetime.datetime.now()
     with Challenger(args.ADDRESS, args.PORT) as challenger:
         challenger.execute()
+    t1 = datetime.datetime.now()
+    logging.info("Remote attestation process completed in %s", t1-t0)
 
 
 if __name__ == "__main__":

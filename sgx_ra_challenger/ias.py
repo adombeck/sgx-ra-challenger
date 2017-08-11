@@ -16,6 +16,8 @@ def retrieve_sigrl(epid_group_id: bytes):
 
     response = requests.get(url, cert=(SSL_CERT_PATH, SSL_KEY_PATH))
 
+    logging.info("Retrieved signature revocation list from IAS in %s", response.elapsed)
+
     if response.status_code != 200:
         response.raise_for_status()
 
@@ -40,27 +42,29 @@ def verify_quote(quote: bytes):
 
     response = requests.post(url, json=body, cert=(SSL_CERT_PATH, SSL_KEY_PATH))
 
+    logging.info("Retrieved verification report from IAS in %s", response.elapsed)
+
     if response.status_code != 201:
         response.raise_for_status()
 
-    body = response.json()
+    report = response.json()
     logging.debug("response headers: %r", response.headers)
-    logging.debug("response body: %r", body)
+    logging.debug("verification report: %r", report)
 
-    if body["isvEnclaveQuoteStatus"] != "OK":
-        raise QuoteVerificationError("IAS returned quote status %r", body["isvEnclaveQuoteStatus"])
+    if report["isvEnclaveQuoteStatus"] != "OK":
+        raise QuoteVerificationError("IAS returned quote status %r", report["isvEnclaveQuoteStatus"])
 
-    if not hmac.compare_digest(nonce, body["nonce"]):
+    if not hmac.compare_digest(nonce, report["nonce"]):
         raise QuoteVerificationError("IAS returned incorrect nonce")
 
     verify_ias_response_signature(response)
 
-    verify_ias_response_quote(body, encoded_quote)
+    verify_ias_response_quote(report, encoded_quote)
 
-    if not "epidPseudonym" in body:
-        return body["id"]
+    if not "epidPseudonym" in report:
+        return report["id"]
     else:
-        return body["id"], body["epidPseudonym"]
+        return report["id"], report["epidPseudonym"]
 
 
 def verify_ias_response_signature(response):
