@@ -1,6 +1,6 @@
-# Python SGX Remote Attestation Challenger
+# SGX Remote Attestation Challenger
 
-This package enables you to request and perform remote attestation of a remotely running enclave, which uses the Python SGX package for remote attestation.
+This package enables you to request and perform a remote attestation of a remotely running enclave, which uses the [Python SGX package](https://github.com/adombeck/python-sgx) for remote attestation.
 
 
 ## Submodules
@@ -20,7 +20,7 @@ This package enables you to request and perform remote attestation of a remotely
 
 
 ## Preparation
-Before you can use the remote attestation, you have to register a TLS client certificate with Intel SGX Development Services, generate a key pair for authentication to the enclave, and calculate the measurement of the application you want to attest.
+Before you can use the remote attestation, you have to register a TLS client certificate with Intel SGX Development Services, generate a key pair for authentication to the enclave, and calculate the measurement of the application you want to verify.
 
 
 ### Register Certificate with Intel SGX Development Services
