@@ -44,7 +44,7 @@ class Challenger(object):
         self.key_signature = None
         self.msg2_mac = None
         self.msg3_mac = None
-        self.platform_service_security_properties = None
+        self.ps_sec_prop = None
         self.shared_key = None
         self.session_mac_key = None
         self.long_term_private_key = get_private_key()
@@ -155,7 +155,7 @@ class Challenger(object):
 
         self.quote = bytes.fromhex(msg3["quote"])
         self.msg3_mac = bytes.fromhex(msg3["mac"])
-        self.platform_service_security_properties = bytes.fromhex(msg3["platform_service_security_properties"])
+        self.ps_sec_prop = bytes.fromhex(msg3["ps_sec_prop"])
 
         logging.debug("quote: %r", self.quote)
 
@@ -166,7 +166,7 @@ class Challenger(object):
             self.session_mac_key,
             self.enclave_public_key,
             self.quote,
-            self.platform_service_security_properties
+            self.ps_sec_prop
         )
 
         report_data = self.quote[368:432]
