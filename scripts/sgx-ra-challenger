@@ -4,7 +4,6 @@ import argparse
 import socket
 import logging
 import datetime
-import os
 
 from sgx_ra_challenger.util import get_private_key, get_mrenclave, check_msg
 from sgx_ra_challenger.socket_util import receive_msg, send_msg
@@ -16,7 +15,7 @@ from sgx_ra_challenger.crypto import create_msg2_mac
 from sgx_ra_challenger.crypto import verify_msg3_mac
 from sgx_ra_challenger.crypto import verify_msg3_report_data
 from sgx_ra_challenger.crypto import verify_quote_mrenclave
-from sgx_ra_challenger.config import QUOTE_TYPE, SPID, KDF_ID, SSL_CERT_PATH, SSL_KEY_PATH
+from sgx_ra_challenger.config import QUOTE_TYPE, SPID, KDF_ID
 from sgx_ra_challenger import ias
 
 
@@ -216,12 +215,6 @@ def main():
 
     if args.listen:
         raise NotImplementedError()
-
-    if not os.path.isfile(SSL_CERT_PATH):
-        raise FileNotFoundError(SSL_CERT_PATH)
-
-    if not os.path.isfile(SSL_KEY_PATH):
-        raise FileNotFoundError(SSL_KEY_PATH)
 
     t0 = datetime.datetime.now()
     with Challenger(args.ADDRESS, args.PORT) as challenger:
