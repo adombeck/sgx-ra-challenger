@@ -53,3 +53,7 @@ This extracts the `MRENCLAVE` and writes it to `$HOME/.sgx-ra-challenger/mrencla
 To request attestation from host `192.168.0.2`, run:
 
     sgx-ra-challenger -c 192.168.0.2 6789
+
+## Note
+
+You can skip the communication with the Intel Attestation Service by using branch `skip_ias`.
