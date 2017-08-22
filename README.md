@@ -16,7 +16,7 @@ This package enables you to request and perform a remote attestation of a remote
 
 2. Run the install script: 
 
-         sudo ./setup.py install
+         ./setup.sh
 
 
 ## Preparation
